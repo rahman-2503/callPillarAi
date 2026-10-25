@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --paper: 140 14% 95%;
+    --surface: 0 0% 100%;
+    --ink: 168 24% 10%;
+    --muted: 165 9% 40%;
+    --line: 150 10% 85%;
+    --accent: 168 60% 24%;
+    --accent-soft: 160 30% 92%;
+    --accent-ink: 0 0% 100%;
+    --signal: 14 66% 48%;
+    --teal: 174 48% 30%;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.18);
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  .shell-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--line) / 0.55) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--line) / 0.45) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, black, transparent 82%);
+  }
+
+  .rule-label {
+    @apply font-mono text-[10px] uppercase tracking-[0.18em] text-muted;
+  }
+
+  .panel {
+    @apply rounded-xl border border-line bg-surface shadow-panel;
+  }
+}

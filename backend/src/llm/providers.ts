@@ -99,7 +99,7 @@ class GeminiProvider implements LlmProvider {
   async generate(input: SuggestInput): Promise<Suggestion> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       this.model,
-    )}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    )}:generateContent`;
     const response = await postJson(
       url,
       {
@@ -107,7 +107,7 @@ class GeminiProvider implements LlmProvider {
         contents: [{ role: 'user', parts: [{ text: buildUserPrompt(input) }] }],
         generationConfig: { temperature: 0.4, responseMimeType: 'application/json', maxOutputTokens: 700 },
       },
-      {},
+      { 'X-goog-api-key': this.apiKey },
       env.LLM_TIMEOUT_MS,
     );
     const payload = (await response.json()) as {

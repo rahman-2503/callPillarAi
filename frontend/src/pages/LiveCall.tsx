@@ -1,21 +1,15 @@
-import { AnimatePresence, motion } from 'motion/react';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  AlertTriangle,
   Check,
-  ChevronRight,
   CircleStop,
-  Clock3,
   Loader2,
   Save,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CopilotPanel } from '@/components/CopilotPanel';
-import { StageRail } from '@/components/StageRail';
-import { OutcomeBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -28,10 +22,13 @@ import {
 import { Label, Textarea } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { OUTCOME_LABELS, STAGE_MAP, STAGES } from '@/data/stages';
 import { api, ApiError } from '@/lib/api';
 import { callDisplayTitle, formatDay } from '@/lib/format';
 import { FINAL_OUTCOMES, type CallWithStages, type FinalOutcome, type StageId } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface Draft {
   prospectStatement: string;
@@ -41,6 +38,57 @@ interface Draft {
 
 const emptyDraft: Draft = { prospectStatement: '', whatHappened: '', stageOutcome: '' };
 
+const WHAT_HAPPENED_OPTIONS: Record<StageId, string[]> = {
+  opening: [
+    'Asked what we do',
+    'Asked where we got the number',
+    'Said they are busy / driving',
+    'Said wrong person / left company',
+  ],
+  purpose: [
+    'Understood the purpose',
+    'Asked for more clarity',
+    'Asked where we got their details',
+    'Assumed it was a sales call',
+  ],
+  permission: [
+    'Said go ahead / yes now',
+    'Asked to call back later',
+    'Asked to send info first',
+    'Declined / no permission',
+  ],
+  their_business: [
+    'Described their business',
+    'Corrected our understanding',
+    'Rushed to pitch us',
+    'Said not relevant / wrong division',
+  ],
+  their_need: [
+    'Named a specific goal/need',
+    'Said everything is fine',
+    'Turned it around on us',
+    'Unclear / vague response',
+  ],
+  objection: [
+    'Already have a provider',
+    'Not the right person',
+    'Asked for written info',
+    'No budget / no reason given',
+  ],
+  next_step: [
+    'Agreed to meeting / call',
+    'Agreed to receive document',
+    'Referred to a colleague',
+    'No next step agreed',
+  ],
+  close: [
+    'Clear agreement reached',
+    'Polite no / declined',
+    'Hung up / line dropped',
+    'Left voicemail',
+  ],
+};
+
 function draftFromCall(call: CallWithStages, stageId: StageId): Draft {
   const existing = call.stageResults.find((stage) => stage.stageId === stageId);
   return {
@@ -48,6 +96,12 @@ function draftFromCall(call: CallWithStages, stageId: StageId): Draft {
     whatHappened: existing?.whatHappened ?? '',
     stageOutcome: existing?.stageOutcome ?? '',
   };
+}
+
+function formatTimer(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = (seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
 }
 
 export function LiveCallPage() {
@@ -66,10 +120,11 @@ export function LiveCallPage() {
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
   const [guardOpen, setGuardOpen] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [timerSeconds, setTimerSeconds] = useState(0);
   const currentStageRef = useRef<HTMLDivElement>(null);
 
   const stage = STAGE_MAP[stageId];
+
   const dirty =
     draft.prospectStatement !== savedDraft.prospectStatement ||
     draft.whatHappened !== savedDraft.whatHappened ||
@@ -106,8 +161,8 @@ export function LiveCallPage() {
   }, [id]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
+    const interval = setInterval(() => setTimerSeconds((t) => t + 1), 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -207,12 +262,6 @@ export function LiveCallPage() {
     }
   }
 
-  function attemptLeave(event: React.MouseEvent) {
-    if (!dirty) return;
-    event.preventDefault();
-    setGuardOpen(true);
-  }
-
   if (loadError) {
     return (
       <div className="mx-auto max-w-xl pt-16 text-center">
@@ -239,300 +288,266 @@ export function LiveCallPage() {
   }
 
   const isCompleted = call.status === 'completed';
-  const elapsedMinutes = Math.max(0, Math.round((now - new Date(call.createdAt).getTime()) / 60000));
   const prevStage = stage.number > 1 ? STAGES[stage.number - 2] : null;
   const nextStage = stage.number < STAGES.length ? STAGES[stage.number] : null;
+  const whatHappenedOpts = WHAT_HAPPENED_OPTIONS[stageId] || [];
 
   return (
-    <div className="mx-auto w-full max-w-[1400px]">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              to="/calls"
-              onClick={attemptLeave}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-ink"
-            >
-              <ArrowLeft className="size-3.5" />
-              Call history
-            </Link>
-            <span className="text-line">/</span>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted">Live call</span>
-            {isCompleted ? <OutcomeBadge outcome={call.finalOutcome} /> : null}
-          </div>
-          <h1 className="mt-2 truncate font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-            {callDisplayTitle(call)}
-          </h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-            {call.prospectRole ? <span>{call.prospectRole}</span> : null}
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="size-3" />
-              Started {formatDay(call.createdAt)}
-            </span>
-            {!isCompleted ? <span>{elapsedMinutes} min elapsed</span> : null}
-          </p>
+    <div className="min-h-screen bg-gray-50">
+      <header className="border-b border-gray-200 bg-white px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="font-display text-xl font-bold text-gray-900">CALLPILOT AI</span>
+          <Separator orientation="vertical" className="h-6" />
+          <span className="font-mono text-xs uppercase tracking-wider text-gray-500">CALL GUIDE</span>
         </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {isCompleted ? (
-            <Button asChild variant="outline">
-              <Link to={`/calls/${call.id}`}>View saved record</Link>
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => saveStage({ advance: false })}
-                disabled={saving || dirty === false}
-              >
-                {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                Save stage
-              </Button>
-              <Button variant="signal" onClick={() => setCloseOpen(true)}>
-                <CircleStop className="size-4" />
-                End call
-              </Button>
-            </>
-          )}
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-2xl font-bold tabular-nums text-gray-900">
+            {formatTimer(timerSeconds)}
+          </span>
         </div>
       </header>
 
-      {isCompleted ? (
-        <div className="mt-4 rounded-lg border border-teal/25 bg-teal/5 px-4 py-3 text-sm text-teal">
-          This call is closed. Its stage notes are read-only. <Link to={`/calls/${call.id}`} className="underline">Open the saved record</Link>.
-        </div>
-      ) : null}
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-[236px_minmax(0,1fr)] xl:grid-cols-[236px_minmax(0,1fr)_320px]">
-        <div className="space-y-4">
-          <StageRail
-            activeStage={stageId}
-            completedStages={completedStages}
-            onSelect={requestStage}
-            disabled={isCompleted}
-          />
-          <div className="panel p-4">
-            <p className="rule-label">Next step</p>
-            {nextStage ? (
-              <button
-                type="button"
-                onClick={() => requestStage(nextStage.id)}
-                disabled={isCompleted}
-                className="mt-2 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-paper px-3 py-2 text-left text-sm hover:border-ink/20 disabled:opacity-60"
-              >
-                <span>
-                  <span className="block font-mono text-[9px] uppercase tracking-wider text-muted">
-                    Next: {nextStage.number} of 8
-                  </span>
-                  <span className="mt-0.5 block font-medium">{nextStage.title}</span>
-                </span>
-                <ChevronRight className="size-4 text-muted" />
-              </button>
-            ) : (
-              <p className="mt-2 text-xs text-muted">This is the last stage. Close the call and record the outcome.</p>
-            )}
-          </div>
-        </div>
-
-        <div ref={currentStageRef} className="min-w-0">
-          <AnimatePresence mode="wait">
-            <motion.section
-              key={stageId}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="panel overflow-hidden"
-              aria-labelledby="stage-title"
-            >
-              <div className="border-b border-line bg-ink px-5 py-4 text-paper">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-paper/55">
-                    Stage {stage.number} of 8
-                  </p>
-                  <span className="flex items-center gap-1.5 font-mono text-[10px] text-paper/55">
-                    <span className="size-1.5 rounded-full bg-signal" />
-                    Current
-                  </span>
+      <main className="px-4 py-4 lg:px-6">
+        <div className="mx-auto max-w-[1400px] grid gap-4 lg:grid-cols-[1fr_380px]">
+          <div className="space-y-4 min-w-0" ref={currentStageRef}>
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900">{call.prospectName ?? 'Unknown'}</span>
+                  {call.prospectRole && (
+                    <>
+                      <Separator orientation="vertical" className="h-4 mx-2" />
+                      <span className="text-sm text-gray-500">{call.prospectRole}</span>
+                    </>
+                  )}
+                  {call.company && (
+                    <>
+                      <Separator orientation="vertical" className="h-4 mx-2" />
+                      <span className="text-sm text-gray-500">{call.company}</span>
+                    </>
+                  )}
                 </div>
-                <h2 id="stage-title" className="mt-1.5 font-display text-2xl font-semibold tracking-tight">
-                  {stage.title}
-                </h2>
-                <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-paper/70">{stage.purpose}</p>
+                <Badge variant={isCompleted ? 'default' : 'secondary'} className="text-xs">
+                  {isCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+                </Badge>
               </div>
-
-              <div className="grid gap-0 md:grid-cols-2">
-                <div className="border-b border-line p-5 md:border-b-0 md:border-r">
-                  <p className="rule-label">What tends to happen</p>
-                  <ul className="mt-2 space-y-1.5">
-                    {stage.listenFor.map((item) => (
-                      <li key={item} className="flex gap-2 text-[13px] leading-relaxed text-muted">
-                        <span className="mt-1.5 size-1 shrink-0 rounded-full bg-muted/60" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <p className="rule-label mt-5">She may say</p>
-                  <ul className="mt-2 space-y-1.5">
-                    {stage.maySay.map((line) => (
-                      <li
-                        key={line}
-                        className="rounded-md border border-line/80 bg-paper/60 px-3 py-2 text-[13px] leading-relaxed"
-                      >
-                        “{line}”
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="p-5">
-                  <p className="rule-label">What to do</p>
-                  <ol className="mt-2 space-y-2">
-                    {stage.guides.map((guide, index) => (
-                      <li key={guide} className="flex gap-2 text-[13px] leading-relaxed">
-                        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-line font-mono text-[9px] text-muted">
-                          {index + 1}
-                        </span>
-                        <span>{guide}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
-
-              <div className="border-t border-line p-5">
-                <div className="mb-4">
-                  <Label htmlFor="stageOutcome">{stage.outcomeLabel}</Label>
-                  <Select
-                    value={draft.stageOutcome || 'unset'}
-                    onValueChange={(value) => updateDraft('stageOutcome', value === 'unset' ? '' : value)}
-                    disabled={isCompleted}
-                  >
-                    <SelectTrigger id="stageOutcome" className="mt-1.5">
-                      <SelectValue placeholder="Choose an outcome" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unset">Not chosen</SelectItem>
-                      {stage.outcomeOptions.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option.replaceAll('_', ' ')}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="prospectStatement">Their words</Label>
-                    <p className="mt-0.5 text-[11px] text-muted">Type exactly what the prospect said. Do not summarise.</p>
-                    <Textarea
-                      id="prospectStatement"
-                      aria-label="Prospect words"
-                      value={draft.prospectStatement}
-                      onChange={(event) => updateDraft('prospectStatement', event.target.value)}
-                      placeholder="e.g. We want to push the new product line into two more states this year."
-                      maxLength={4000}
-                      disabled={isCompleted}
-                      className="mt-1.5 min-h-[112px]"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="whatHappened">What happened</Label>
-                    <p className="mt-0.5 text-[11px] text-muted">A short note about the exchange, not a script.</p>
-                    <Textarea
-                      id="whatHappened"
-                      value={draft.whatHappened}
-                      onChange={(event) => updateDraft('whatHappened', event.target.value)}
-                      placeholder="e.g. Asked what we do, then asked where we got the number."
-                      maxLength={2000}
-                      disabled={isCompleted}
-                      className="mt-1.5 min-h-[112px]"
-                    />
-                  </div>
-                </div>
-
-                {saveError ? (
-                  <p role="alert" className="mt-3 rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-signal">
-                    {saveError}
-                  </p>
-                ) : null}
-
-                <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2">
-                    {prevStage ? (
-                      <Button variant="ghost" size="sm" onClick={() => requestStage(prevStage.id)} disabled={isCompleted}>
-                        <ArrowLeft className="size-3.5" />
-                        {prevStage.shortTitle}
-                      </Button>
-                    ) : null}
-                    {dirty && !isCompleted ? (
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-signal">Unsaved</span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => saveStage({ advance: false })}
-                      disabled={saving || isCompleted || !dirty}
-                    >
-                      {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                      Save
-                    </Button>
-                    <Button
-                      onClick={() => saveStage({ advance: true })}
-                      disabled={saving || isCompleted}
-                    >
-                      {nextStage ? `Save and continue` : 'Save stage'}
-                      {nextStage ? <ArrowRight className="size-4" /> : <Check className="size-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-          </AnimatePresence>
-
-          {stage.id === 'close' && !isCompleted ? (
-            <div className="mt-4 rounded-xl border border-signal/25 bg-signal/5 p-4">
-              <p className="font-display text-sm font-semibold">Ready to end the call?</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                Closing records the final outcome and makes this record read-only. Save the stage first if you
-                have notes to keep.
-              </p>
-              <Button variant="signal" size="sm" className="mt-3" onClick={() => setCloseOpen(true)}>
-                <CircleStop className="size-3.5" />
-                End call and record outcome
-              </Button>
             </div>
-          ) : null}
-        </div>
 
-        <div className="hidden xl:block">
-          <CopilotPanel
-            stageId={stageId}
-            stagePurpose={stage.purpose}
-            prospectStatement={draft.prospectStatement}
-            callNotes={draft.whatHappened}
-            callTitle={call.title}
-            company={call.company}
-            onUseResponse={(text) =>
-              updateDraft('whatHappened', draft.whatHappened ? `${draft.whatHappened}\n${text}` : text)
-            }
-          />
-        </div>
-      </div>
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <div className="flex flex-wrap gap-1 mb-4" role="tablist" aria-label="Call stages">
+                {STAGES.map((s) => (
+                  <button
+                    key={s.id}
+                    role="tab"
+                    aria-selected={s.id === stageId}
+                    aria-controls={`stage-panel-${s.id}`}
+                    onClick={() => requestStage(s.id)}
+                    disabled={isCompleted}
+                    className={cn(
+                      'flex-1 min-w-0 py-2 px-1 text-center text-xs font-medium rounded-lg transition-all',
+                      s.id === stageId
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : completedStages.has(s.id)
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+                      isCompleted && 'opacity-60 cursor-not-allowed'
+                    )}
+                  >
+                    {s.number}
+                  </button>
+                ))}
+              </div>
 
-      <div className="mt-4 xl:hidden">
-        <CopilotPanel
-          stageId={stageId}
-          stagePurpose={stage.purpose}
-          prospectStatement={draft.prospectStatement}
-          callNotes={draft.whatHappened}
-          callTitle={call.title}
-          company={call.company}
-        />
-      </div>
+              <div className="mb-4">
+                <p className="font-mono text-xs uppercase tracking-wider text-gray-500">
+                  STAGE {stage.number} OF 8
+                </p>
+                <h2 className="mt-1 font-display text-xl font-bold text-gray-900">{stage.title}</h2>
+                <p className="mt-2 text-sm text-gray-600 leading-relaxed">{stage.purpose}</p>
+              </div>
+            </div>
+
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500 mb-3">SHE MAY SAY</h3>
+              <div className="space-y-2">
+                {stage.maySay.slice(0, 3).map((line, i) => (
+                  <div
+                    key={i}
+                    className="relative rounded-lg border-l-4 border-blue-600 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700"
+                  >
+                    <p className="italic">"{line}"</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500 mb-3">WHAT HAPPENED</h3>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {whatHappenedOpts.map((opt, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => updateDraft('whatHappened', opt)}
+                    disabled={isCompleted}
+                    className={cn(
+                      'relative rounded-lg border p-3 text-sm font-medium text-center transition-all',
+                      draft.whatHappened === opt
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300',
+                      isCompleted && 'opacity-60 cursor-not-allowed'
+                    )}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+              <div>
+                <Label htmlFor="whatHappened" className="block text-xs font-medium text-gray-500 mb-1">
+                  Other / Additional notes
+                </Label>
+                <Textarea
+                  id="whatHappened"
+                  value={draft.whatHappened}
+                  onChange={(e) => updateDraft('whatHappened', e.target.value)}
+                  placeholder="Add any additional context..."
+                  maxLength={2000}
+                  disabled={isCompleted}
+                  className="min-h-[80px]"
+                />
+              </div>
+            </div>
+
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="font-mono text-xs uppercase tracking-wider text-gray-500 mb-3">HER WORDS</h3>
+              <Textarea
+                id="prospectStatement"
+                value={draft.prospectStatement}
+                onChange={(e) => updateDraft('prospectStatement', e.target.value)}
+                placeholder="Type exactly what the prospect said. Do not summarise."
+                maxLength={4000}
+                disabled={isCompleted}
+                className="min-h-[120px]"
+              />
+            </div>
+
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <div className="mb-4">
+                <Label htmlFor="stageOutcome" className="block text-xs font-medium text-gray-500 mb-1">
+                  {stage.outcomeLabel}
+                </Label>
+                <Select
+                  value={draft.stageOutcome || 'unset'}
+                  onValueChange={(value) => updateDraft('stageOutcome', value === 'unset' ? '' : value)}
+                  disabled={isCompleted}
+                >
+                  <SelectTrigger id="stageOutcome">
+                    <SelectValue placeholder="Choose an outcome" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unset">Not chosen</SelectItem>
+                    {stage.outcomeOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option.replaceAll('_', ' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {saveError && (
+                <p className="mb-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2" role="alert">
+                  {saveError}
+                </p>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {prevStage && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => requestStage(prevStage.id)}
+                      disabled={isCompleted}
+                    >
+                      <ArrowLeft className="size-3.5" />
+                      {prevStage.shortTitle}
+                    </Button>
+                  )}
+                  {dirty && !isCompleted && (
+                    <span className="font-mono text-xs uppercase tracking-wider text-red-600">Unsaved</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Button
+                    variant="outline"
+                    onClick={() => saveStage({ advance: false })}
+                    disabled={saving || isCompleted || !dirty}
+                    className="flex-1 sm:w-auto"
+                  >
+                    {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    Save
+                  </Button>
+                  <Button
+                    onClick={() => saveStage({ advance: true })}
+                    disabled={saving || isCompleted}
+                    className="flex-1 sm:w-auto bg-gray-900 hover:bg-gray-700 text-white"
+                  >
+                    {nextStage ? `Next: ${nextStage.title}` : 'Save stage'}
+                    {nextStage ? <ArrowRight className="size-4" /> : <Check className="size-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setCloseOpen(true)}
+                    className="flex-1 sm:w-auto border-gray-300 hover:bg-gray-50"
+                  >
+                    <CircleStop className="size-4" />
+                    End Call
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside className="hidden lg:block space-y-4">
+            <div className="card bg-white border border-gray-200 rounded-xl p-4">
+              <div className="mb-4">
+                <h3 className="font-display text-lg font-bold text-gray-900">THE SECOND SCREEN: PAST CALLS</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  After a call is saved it appears here with the stage it reached.
+                </p>
+              </div>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {call ? (
+                  <div className="border border-gray-200 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{callDisplayTitle(call)}</p>
+                        <p className="text-sm text-gray-500 truncate">
+                          {call.prospectName ? `${call.prospectName}${call.company ? ` · ${call.company}` : ''}` : 'Unknown prospect'}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {call.prospectRole ? `${call.prospectRole}` : 'No role'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className="font-mono text-xs uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                          {call.currentStage.toUpperCase().replace('_', ' ')}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {formatDay(call.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 text-center py-8">No calls recorded yet</p>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </main>
 
       <Dialog open={Boolean(pendingStage)} onOpenChange={(open) => !open && setPendingStage(null)}>
         <DialogContent>
@@ -547,7 +562,7 @@ export function LiveCallPage() {
               Stay here
             </Button>
             <Button
-              variant="signal"
+              variant="destructive"
               onClick={() => {
                 if (pendingStage) switchStage(pendingStage);
               }}
@@ -571,7 +586,7 @@ export function LiveCallPage() {
             <Button variant="outline" onClick={() => setGuardOpen(false)}>
               Stay on the call
             </Button>
-            <Button variant="signal" onClick={() => navigate('/calls')}>
+            <Button variant="destructive" onClick={() => navigate('/calls')}>
               Leave without saving
             </Button>
           </DialogFooter>
@@ -601,22 +616,22 @@ export function LiveCallPage() {
               </SelectContent>
             </Select>
           </div>
-          {dirty ? (
-            <p className="mt-3 flex items-start gap-2 rounded-lg bg-paper px-3 py-2 text-xs leading-relaxed text-muted">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-signal" />
+          {dirty && (
+            <p className="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-red-600" />
               You have unsaved stage notes. Close the dialog and save first if you want to keep them.
             </p>
-          ) : null}
-          {closeError ? (
-            <p role="alert" className="mt-3 rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-signal">
+          )}
+          {closeError && (
+            <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2" role="alert">
               {closeError}
             </p>
-          ) : null}
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCloseOpen(false)} disabled={closing}>
               Keep call open
             </Button>
-            <Button variant="signal" onClick={closeCall} disabled={closing}>
+            <Button variant="destructive" onClick={closeCall} disabled={closing}>
               {closing ? <Loader2 className="size-4 animate-spin" /> : null}
               {closing ? 'Closing…' : 'Close call'}
             </Button>

@@ -12,6 +12,7 @@ const badgeVariants = cva(
         signal: 'border-signal/20 bg-signal/10 text-signal',
         teal: 'border-teal/20 bg-teal/10 text-teal',
         ink: 'border-ink/15 bg-ink/5 text-ink',
+        secondary: 'border-gray-200 bg-gray-100 text-gray-600',
       },
     },
     defaultVariants: { variant: 'default' },

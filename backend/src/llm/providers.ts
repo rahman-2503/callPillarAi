@@ -88,17 +88,34 @@ class ChatCompletionsProvider implements LlmProvider {
 
 class GeminiProvider implements LlmProvider {
   readonly name = 'gemini';
-  readonly model: string;
   private readonly apiKey: string;
+  private readonly models: string[];
 
-  constructor(model: string, apiKey: string) {
-    this.model = model;
+  constructor(models: string[], apiKey: string) {
+    this.models = models;
     this.apiKey = apiKey;
   }
 
+  get model(): string {
+    return this.models[0];
+  }
+
   async generate(input: SuggestInput): Promise<Suggestion> {
+    let lastError: Error | null = null;
+    for (const model of this.models) {
+      try {
+        return await this.generateWithModel(model, input);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        continue;
+      }
+    }
+    throw lastError ?? new Error('All models failed');
+  }
+
+  private async generateWithModel(model: string, input: SuggestInput): Promise<Suggestion> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      this.model,
+      model,
     )}:generateContent`;
     const response = await postJson(
       url,
@@ -205,7 +222,7 @@ export function createLlmProvider(): LlmProvider {
   }
   switch (LLM_PROVIDER) {
     case 'gemini':
-      return new GeminiProvider(LLM_MODEL ?? 'gemini-2.0-flash', LLM_API_KEY);
+      return new GeminiProvider([LLM_MODEL ?? 'gemini-3.8-flash', 'gemini-2.5-flash'], LLM_API_KEY);
     case 'mistral':
       return new ChatCompletionsProvider(
         'mistral',

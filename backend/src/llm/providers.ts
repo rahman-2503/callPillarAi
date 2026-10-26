@@ -101,16 +101,27 @@ class GeminiProvider implements LlmProvider {
   }
 
   async generate(input: SuggestInput): Promise<Suggestion> {
-    let lastError: Error | null = null;
     for (const model of this.models) {
-      try {
-        return await this.generateWithModel(model, input);
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        continue;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await this.generateWithModel(model, input);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes('503') && attempt === 0) {
+            continue;
+          }
+          break;
+        }
       }
     }
-    throw lastError ?? new Error('All models failed');
+    const demo = DEMO_REPLIES[input.stageId] ?? DEMO_REPLIES.opening;
+    return {
+      ...demo,
+      suggestedResponse: input.prospectStatement
+        ? `${demo.suggestedResponse} I have your words here: "${input.prospectStatement.slice(0, 160)}".`
+        : demo.suggestedResponse,
+      caution: 'All models unavailable; using demo suggestion.',
+    };
   }
 
   private async generateWithModel(model: string, input: SuggestInput): Promise<Suggestion> {
